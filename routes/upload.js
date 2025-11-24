@@ -15,6 +15,10 @@ import sharp from 'sharp'
 // Vercel Blob: https://vercel.com/docs/vercel-blob/using-blob-sdk?framework=other&language=js
 import { put, del } from '@vercel/blob'
 
+// Auth0 OpenID Connect for authentication checks
+import auth0 from 'express-openid-connect'
+const { requiresAuth } = auth0
+
 const router = express.Router()
 
 // Configuration
@@ -26,6 +30,9 @@ const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml']
 
 // POST /api/upload - Upload image to Vercel Blob
 router.post('/upload', async (req, res) => {
+    if (!req.oidc?.isAuthenticated()) {
+        return res.status(401).json({ error: 'Authentication required' })
+    }
     const uploadProcessor = busboy({ headers: req.headers })
 
     uploadProcessor.on('file', async (name, file, info) => {
@@ -150,6 +157,9 @@ router.post('/upload', async (req, res) => {
 
 // DELETE /api/image - Delete image from Vercel Blob
 router.delete('/image', async (req, res) => {
+    if (!req.oidc?.isAuthenticated()) {
+        return res.status(401).json({ error: 'Authentication required' })
+    }
     try {
         const { url } = req.body
 

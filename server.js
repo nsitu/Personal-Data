@@ -4,13 +4,43 @@ import express from 'express'
 // Initialize Express app
 const app = express()
 
-// Serve static files from /public folder (useful when running Node locally, optional on Vercel).
+// import path module to help with file paths
+import path from 'path';
+
+// Serve static files from the 'public' folder
 app.use(express.static('public'))
-// Define index.html as the root explicitly (useful on Vercel, optional when running Node locally).
-app.get('/', (req, res) => { res.redirect('/index.html') })
+
+// On Vercel, point the root url (/) to index.html explicitly
+if (process.env.VERCEL) {
+    app.get('/', (req, res) => {
+        res.sendFile(path.join(process.cwd(), 'public', 'index.html'))
+    })
+}
 
 // Enable express to parse JSON data
 app.use(express.json())
+
+// Auth0 / OpenID Connect integration
+import auth0 from 'express-openid-connect'
+const { auth } = auth0
+
+const config = {
+    authRequired: false,
+    auth0Logout: true,
+    secret: process.env.SECRET,
+    baseURL: process.env.BASE_URL,
+    clientID: process.env.CLIENT_ID,
+    issuerBaseURL: process.env.ISSUER_BASE_URL
+}
+
+// Validate that the required Auth0 env vars are present
+if (['secret', 'baseURL', 'clientID', 'issuerBaseURL'].some(key => !config[key])) {
+    console.error('Error: Auth0 environment variable(s) are missing.')
+    process.exit(1)
+}
+
+// Attach Auth0 middleware (adds /login, /logout, /callback and req.oidc)
+app.use(auth(config))
 
 // Our API is defined in a separate module to keep things tidy.
 // Let's import our API endpoints and activate them.
@@ -21,8 +51,7 @@ app.use('/', apiRoutes)
 import uploadRoutes from './routes/upload.js'
 app.use('/api', uploadRoutes)
 
-
-const port = 3001
+const port = 3000
 app.listen(port, () => {
     console.log(`Express is live at http://localhost:${port}`)
 })

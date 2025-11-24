@@ -12,6 +12,13 @@ const model = 'cats'
 import { PrismaClient } from '@prisma/client'
 const prisma = new PrismaClient()
 
+// Auth0 OpenID Connect (req.oidc)
+import auth0 from 'express-openid-connect'
+const { requiresAuth } = auth0
+
+// User lifecycle helper
+import { ensureUser } from '../helpers/userHelper.js'
+
 // Import del function from Vercel Blob for image cleanup
 import { del } from '@vercel/blob'
 
@@ -22,17 +29,51 @@ prisma.$connect().then(() => {
     console.error('Failed to connect to MongoDB:', err)
 })
 
+// ----- USER (GET) -----
+// Publish user data and auth state to the frontend
+router.get('/api/user', async (req, res) => {
+    try {
+        if (req.oidc?.isAuthenticated()) {
+            const user = await ensureUser(req.oidc.user)
+            res.send({
+                ...req.oidc.user,
+                id: user.id,
+                isAuthenticated: true
+            })
+        } else {
+            res.send({
+                name: 'Guest',
+                isAuthenticated: false
+            })
+        }
+    } catch (err) {
+        console.error('GET /api/user error:', err)
+        res.status(500).send({ error: 'Failed to fetch user', details: err.message || err })
+    }
+})
+
+
 // ----- CREATE (POST) -----
 // Create a new record for the configured model
 // This is the 'C' of CRUD
 router.post('/data', async (req, res) => {
+    if (!req.oidc?.isAuthenticated()) {
+        return res.status(401).send({ error: 'Authentication required' })
+    }
+
     try {
+        // Ensure we have a User record for this Auth0 user
+        const user = await ensureUser(req.oidc.user)
+
         // Remove the id field from request body if it exists
         // MongoDB will auto-generate an ID for new records
-        const { id, ...createData } = req.body
+        const { id, ownerId, owner, ...createData } = req.body
 
         const created = await prisma[model].create({
-            data: createData
+            data: {
+                ...createData,
+                ownerId: user.id
+            }
         })
         res.status(201).send(created)
     } catch (err) {
@@ -92,43 +133,62 @@ router.get('/search', async (req, res) => {
 
 
 router.put('/data/:id', async (req, res) => {
-    const { id, _id, ...requestBody } = req.body || {};
-
-    for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-            const updated = await prisma[model].update({
-                where: { id: req.params.id },
-                data: requestBody,
-            });
-            console.log(`PUT /data/${req.params.id} successful on attempt ${attempt}:`, updated);
-
-            return res.send(updated);
-        } catch (err) {
-
-            if (err.code === 'P2034') {
-                if (attempt < 2) {
-                    await new Promise(r => setTimeout(r, 100))
-                    continue;
-                }
-                return res.status(409).send({ error: 'Write conflict, please retry' });
-            }
-
-            console.error('PUT /data/:id error:', err);
-            return res.status(500).send({ error: 'Failed to update record' });
-        }
+    if (!req.oidc?.isAuthenticated()) {
+        return res.status(401).send({ error: 'Authentication required' })
     }
-});
+
+    const { id, _id, ownerId, owner, ...requestBody } = req.body || {}
+
+    try {
+        // Fetch the existing record including owner relation
+        const existing = await prisma[model].findUnique({
+            where: { id: req.params.id },
+            include: { owner: true }
+        })
+
+        if (!existing) {
+            return res.status(404).send({ error: 'Record not found' })
+        }
+
+        if (!existing.owner || existing.owner.sub !== req.oidc.user.sub) {
+            return res.status(403).send({ error: 'Forbidden' })
+        }
+
+        const updated = await prisma[model].update({
+            where: { id: req.params.id },
+            data: requestBody
+        })
+
+        return res.send(updated)
+    } catch (err) {
+        console.error('PUT /data/:id error:', err)
+        return res.status(500).send({ error: 'Failed to update record', details: err.message || err })
+    }
+})
 
 // ----- DELETE -----
 // Listen for DELETE requests
 // respond by deleting a particular record in the database
 // This is the 'D' of CRUD
 router.delete('/data/:id', async (req, res) => {
+    if (!req.oidc?.isAuthenticated()) {
+        return res.status(401).send({ error: 'Authentication required' })
+    }
+
     try {
-        // Get the cat record first to get the image URL
+        // Get the cat record first (including owner) to check permissions and image URL
         const cat = await prisma[model].findUnique({
-            where: { id: req.params.id }
+            where: { id: req.params.id },
+            include: { owner: true }
         })
+
+        if (!cat) {
+            return res.status(404).send({ error: 'Record not found' })
+        }
+
+        if (!cat.owner || cat.owner.sub !== req.oidc.user.sub) {
+            return res.status(403).send({ error: 'Forbidden' })
+        }
 
         // Delete from database
         const result = await prisma[model].delete({
@@ -136,7 +196,7 @@ router.delete('/data/:id', async (req, res) => {
         })
 
         // Delete associated image from Vercel Blob (if exists)
-        if (cat?.imageUrl) {
+        if (cat.imageUrl) {
             try {
                 await del(cat.imageUrl)
                 console.log('Deleted image:', cat.imageUrl)

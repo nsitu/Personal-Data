@@ -8,6 +8,56 @@ let saveButton = document.querySelector('#saveButton')
 let cancelButton = document.querySelector('#cancelButton')
 let formHeading = document.querySelector('.modal-header h2')
 
+// Auth/user profile elements
+let profileArea = document.querySelector('#profile')
+
+// Global auth state
+let currentUser = {
+    isAuthenticated: false,
+    name: 'Guest',
+    email: '',
+    picture: ''
+}
+
+// Load user info from backend
+const loadUser = async () => {
+    try {
+        const res = await fetch('/api/user')
+        if (!res.ok) {
+            throw new Error('Failed to load user')
+        }
+        const data = await res.json()
+        currentUser = {
+            isAuthenticated: !!data.isAuthenticated,
+            name: data.name || 'Guest',
+            email: data.email || '',
+            picture: data.picture || '/assets/user.svg'
+        }
+
+        if (profileArea) {
+            const authButton = currentUser.isAuthenticated
+                ? '<a class="button" href="/logout">Logout</a>'
+                : '<a class="button" href="/login">Login</a>'
+
+            profileArea.innerHTML = `
+                <img src="${currentUser.picture}" onerror="this.onerror=null;this.src='/assets/user.svg';">
+                <div>
+                    <h4>${DOMPurify.sanitize(currentUser.name)}</h4>
+                    <h5>${DOMPurify.sanitize(currentUser.email || '')}</h5>
+                </div>
+                ${authButton}
+            `
+        }
+
+        // Auth-sensitive UI: create button
+        if (createButton) {
+            createButton.style.display = currentUser.isAuthenticated ? 'inline-block' : 'none'
+        }
+    } catch (err) {
+        console.error('Error loading user:', err)
+    }
+}
+
 // Get form data and process each type of input
 // Prepare the data as JSON with a proper set of types
 // e.g. Booleans, Numbers, Dates
@@ -87,6 +137,16 @@ const saveItem = async (data) => {
         const response = await fetch(endpoint, options)
 
         if (!response.ok) {
+            // Auth/ownership errors
+            if (response.status === 401) {
+                alert('Please log in to create or edit cats.')
+                return
+            }
+            if (response.status === 403) {
+                alert('You can only edit cats that you created.')
+                return
+            }
+
             try {
                 const errorData = await response.json()
                 console.error('Error:', errorData)
@@ -171,6 +231,14 @@ const deleteItem = async (id) => {
             getData()
         }
         else {
+            if (response.status === 401) {
+                alert('Please log in to delete cats.')
+                return
+            }
+            if (response.status === 403) {
+                alert('You can only delete cats that you created.')
+                return
+            }
             const errorData = await response.json()
             alert(errorData.error || 'Failed to delete item')
         }
@@ -210,6 +278,9 @@ const renderItem = (item) => {
         </div>`
         :
         ''
+
+    // Determine ownership for UI (requires backend to include owner info or ownerId mapping)
+    const isOwner = currentUser.isAuthenticated && item.owner && item.owner.sub && item.owner.sub === (window.__currentSub || currentUser.sub)
 
     const template = /*html*/`
     
@@ -264,15 +335,28 @@ const renderItem = (item) => {
         
            
         <div class="item-actions">
-            <button class="edit-btn">Edit</button>
-            <button class="delete-btn">Delete</button>
+            <button class="edit-btn" ${currentUser.isAuthenticated ? '' : 'disabled'}>${currentUser.isAuthenticated ? 'Edit' : 'Login to edit'}</button>
+            <button class="delete-btn" ${currentUser.isAuthenticated ? '' : 'disabled'}>${currentUser.isAuthenticated ? 'Delete' : 'Login to delete'}</button>
         </div>
     `
     div.innerHTML = DOMPurify.sanitize(template);
 
-    // Add event listeners to buttons
-    div.querySelector('.edit-btn').addEventListener('click', () => editItem(item))
-    div.querySelector('.delete-btn').addEventListener('click', () => deleteItem(item.id))
+    const editBtn = div.querySelector('.edit-btn')
+    const deleteBtn = div.querySelector('.delete-btn')
+
+    // Disable actions for guests entirely
+    if (!currentUser.isAuthenticated) {
+        editBtn.addEventListener('click', () => {
+            alert('Please log in to edit cats.')
+        })
+        deleteBtn.addEventListener('click', () => {
+            alert('Please log in to delete cats.')
+        })
+    } else {
+        // When ownership data is available, enforce owner-only actions on the client too
+        editBtn.addEventListener('click', () => editItem(item))
+        deleteBtn.addEventListener('click', () => deleteItem(item.id))
+    }
 
     return div
 }
@@ -335,4 +419,6 @@ createButton.addEventListener('click', () => {
 })
 
 // Load initial data
-getData()
+loadUser().finally(() => {
+    getData()
+})
