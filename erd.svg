@@ -1,0 +1,37 @@
+<svg width="500" height="200"
+    xmlns="http://www.w3.org/2000/svg">
+
+    <!-- User entity -->
+    <rect x="40" y="60" width="100" height="50" fill="#f9f9f9" stroke="#333"/>
+    <text x="90" y="90" text-anchor="middle" font-family="Arial" font-size="14">
+    User
+    </text>
+
+    <!-- Relationship diamond: owns -->
+    <polygon points="220,85 250,60 280,85 250,110" fill="#ffffff" stroke="#333"/>
+    <text x="250" y="90" text-anchor="middle" font-family="Arial" font-size="12">
+    owns
+    </text>
+
+    <!-- Cats entity -->
+    <rect x="360" y="60" width="100" height="50" fill="#f9f9f9" stroke="#333"/>
+    <text x="410" y="90" text-anchor="middle" font-family="Arial" font-size="14">
+    cats
+    </text>
+
+    <!-- Line from User to relationship (exactly one User) -->
+    <line x1="140" y1="85" x2="220" y2="85" stroke="#333"/>
+    <!-- Short tick near User to emphasize single instance -->
+    <line x1="145" y1="78" x2="145" y2="92" stroke="#333"/>
+
+    <!-- Lines connecting owns -> cats -->
+    <line x1="280" y1="85" x2="360" y2="85" stroke="#333"/>
+    <!-- Line from relationship to Cats with crow's foot at Cats (many) -->
+    <line x1="280" y1="85" x2="360" y2="85" stroke="#333"/>
+    <!-- Crow's foot at Cats side ("many") -->
+    <line x1="360" y1="80" x2="350" y2="85" stroke="#333"/>
+    <line x1="360" y1="90" x2="350" y2="85" stroke="#333"/>
+    <!-- Optionality circle near Cats (0 or more) -->
+    <circle cx="345" cy="85" r="4" fill="none" stroke="#333"/>
+
+</svg>
